@@ -72,7 +72,13 @@ app.use('/users', routesUsers)
 app.use(st({ path: './public', url: '/public' }));
 
 // Add the option to output (sanitized!) markdown
-marked.setOptions({ sanitize: true });
+// marked 4.x requires explicit sanitize: true to block dangerous protocols
+// The sanitize option in 4.x properly blocks javascript:, vbscript:, and data: URIs
+marked.setOptions({
+  headerIds: false,
+  mangle: false,
+  sanitize: true
+});
 app.locals.marked = marked;
 
 // development only
