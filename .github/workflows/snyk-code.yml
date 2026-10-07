@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: snyk/actions/setup@master
+      - uses: snyk/actions/setup@b075801f26076be9bb50521154cafab73f44da0c # master
       - name: Snyk Test
         run: snyk code test --org=${{ secrets.SNYK_ORG }} --sarif > snyk-sarif2.json
         continue-on-error: true
