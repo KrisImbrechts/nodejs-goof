@@ -238,6 +238,36 @@ function isBlank(str) {
   return (!str || /^\s*$/.test(str));
 }
 
+function isSafeLocale(locale) {
+  // Whitelist approach: only allow valid locale identifiers without path traversal
+  // Valid locales are alphanumeric with hyphens and underscores, no path separators
+  if (!locale || typeof locale !== 'string') {
+    return false;
+  }
+  // Reject any locale containing path traversal characters
+  if (locale.includes('/') || locale.includes('\\') || locale.includes('..')) {
+    return false;
+  }
+  // Only allow alphanumeric, hyphens, and underscores
+  return /^[a-zA-Z0-9_-]+$/.test(locale);
+}
+
+function isSafeZipEntry(entryPath, extractionRoot) {
+  // Prevent path traversal in ZIP entries
+  if (!entryPath || typeof entryPath !== 'string') {
+    return false;
+  }
+  
+  // Normalize paths to resolve any .. or . components
+  var path = require('path');
+  var normalizedExtractRoot = path.resolve(extractionRoot);
+  var normalizedEntryPath = path.resolve(path.join(extractionRoot, entryPath));
+  
+  // Ensure the resolved entry path is within the extraction root
+  return normalizedEntryPath.startsWith(normalizedExtractRoot + path.sep) || 
+         normalizedEntryPath === normalizedExtractRoot;
+}
+
 exports.import = function (req, res, next) {
   if (!req.files) {
     res.send('No files were uploaded.');
@@ -254,6 +284,17 @@ exports.import = function (req, res, next) {
   if (importedFileType["mime"] === zipFileExt["mime"]) {
     var zip = AdmZip(importFile.data);
     var extracted_path = "/tmp/extracted_files";
+    
+    // Validate all ZIP entries before extraction to prevent path traversal
+    var zipEntries = zip.getEntries();
+    for (var i = 0; i < zipEntries.length; i++) {
+      var entry = zipEntries[i];
+      if (!isSafeZipEntry(entry.entryName, extracted_path)) {
+        res.status(400).send('Invalid ZIP file: path traversal detected in entry ' + entry.entryName);
+        return;
+      }
+    }
+    
     zip.extractAllTo(extracted_path, true);
     data = "No backup.txt file found";
     fs.readFile('backup.txt', 'ascii', function (err, data) {
@@ -275,6 +316,19 @@ exports.import = function (req, res, next) {
     var item = what;
     if (!isBlank(what)) {
       if (!isBlank(when) && !isBlank(locale) && !isBlank(format)) {
+        // Validate locale to prevent path traversal and code execution
+        if (!isSafeLocale(locale)) {
+          console.log('Invalid locale detected: ' + locale);
+          // Skip this entry but continue processing others
+          new Todo({
+            content: item,
+            updated_at: Date.now(),
+          }).save(function (err, todo, count) {
+            if (err) return next(err);
+            console.log('added ' + todo);
+          });
+          return;
+        }
         console.log('setting locale ' + parts[1]);
         moment.locale(locale);
         var d = moment(when);
