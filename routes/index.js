@@ -15,6 +15,8 @@ var validator = require('validator');
 var fileType = require('file-type');
 var AdmZip = require('adm-zip');
 var fs = require('fs');
+var path = require('path');
+var crypto = require('crypto');
 
 // prototype-pollution
 var _ = require('lodash');
@@ -245,6 +247,14 @@ exports.import = function (req, res, next) {
   }
 
   var importFile = req.files.importFile;
+  
+  // Enforce maximum file size (10MB)
+  var MAX_FILE_SIZE = 10 * 1024 * 1024;
+  if (importFile.size > MAX_FILE_SIZE) {
+    res.status(413).send('File too large. Maximum size is 10MB.');
+    return;
+  }
+  
   var data;
   var importedFileType = fileType(importFile.data);
   var zipFileExt = { ext: "zip", mime: "application/zip" };
@@ -252,19 +262,147 @@ exports.import = function (req, res, next) {
     importedFileType = { ext: "txt", mime: "text/plain" };
   }
   if (importedFileType["mime"] === zipFileExt["mime"]) {
-    var zip = AdmZip(importFile.data);
-    var extracted_path = "/tmp/extracted_files";
-    zip.extractAllTo(extracted_path, true);
-    data = "No backup.txt file found";
-    fs.readFile('backup.txt', 'ascii', function (err, data) {
-      if (!err) {
-        data = data;
+    var zip;
+    try {
+      zip = AdmZip(importFile.data);
+    } catch (err) {
+      res.status(400).send('Invalid ZIP file.');
+      return;
+    }
+    
+    var zipEntries = zip.getEntries();
+    
+    // Enforce maximum number of entries to prevent resource exhaustion
+    var MAX_ENTRIES = 100;
+    if (zipEntries.length > MAX_ENTRIES) {
+      res.status(400).send('ZIP file contains too many entries. Maximum is ' + MAX_ENTRIES + '.');
+      return;
+    }
+    
+    // Validate decompressed size and compression ratio to detect zip bombs
+    var MAX_DECOMPRESSED_SIZE = 50 * 1024 * 1024; // 50MB
+    var MAX_COMPRESSION_RATIO = 100;
+    var totalCompressedSize = 0;
+    var totalDecompressedSize = 0;
+    
+    for (var i = 0; i < zipEntries.length; i++) {
+      var entry = zipEntries[i];
+      totalCompressedSize += entry.header.compressedSize;
+      totalDecompressedSize += entry.header.size;
+      
+      // Check individual entry size
+      if (entry.header.size > MAX_DECOMPRESSED_SIZE) {
+        res.status(400).send('ZIP entry too large. Maximum decompressed size is 50MB.');
+        return;
       }
-    });
+      
+      // Validate entry name to prevent path traversal
+      var entryName = entry.entryName;
+      if (entryName.indexOf('..') !== -1 || entryName.indexOf('/') === 0 || entryName.indexOf('\\') === 0) {
+        res.status(400).send('Invalid entry name in ZIP file.');
+        return;
+      }
+    }
+    
+    // Check total decompressed size
+    if (totalDecompressedSize > MAX_DECOMPRESSED_SIZE) {
+      res.status(400).send('Total decompressed size exceeds limit of 50MB.');
+      return;
+    }
+    
+    // Check compression ratio to detect zip bombs
+    if (totalCompressedSize > 0 && (totalDecompressedSize / totalCompressedSize) > MAX_COMPRESSION_RATIO) {
+      res.status(400).send('Suspicious compression ratio detected. Possible zip bomb.');
+      return;
+    }
+    
+    // Create unique extraction directory per request to avoid conflicts
+    var uniqueId = crypto.randomBytes(16).toString('hex');
+    var extracted_path = "/tmp/extracted_files_" + uniqueId;
+    
+    try {
+      // Ensure directory exists
+      if (!fs.existsSync(extracted_path)) {
+        fs.mkdirSync(extracted_path, { recursive: true });
+      }
+      
+      zip.extractAllTo(extracted_path, true);
+      
+      // Read backup.txt from the extracted directory
+      var backupPath = path.join(extracted_path, 'backup.txt');
+      data = "No backup.txt file found";
+      
+      if (fs.existsSync(backupPath)) {
+        try {
+          data = fs.readFileSync(backupPath, 'ascii');
+        } catch (err) {
+          console.error('Error reading backup.txt:', err);
+        }
+      }
+      
+      // Clean up extracted files
+      try {
+        var rimraf = function(dir_path) {
+          if (fs.existsSync(dir_path)) {
+            fs.readdirSync(dir_path).forEach(function(entry) {
+              var entry_path = path.join(dir_path, entry);
+              if (fs.lstatSync(entry_path).isDirectory()) {
+                rimraf(entry_path);
+              } else {
+                fs.unlinkSync(entry_path);
+              }
+            });
+            fs.rmdirSync(dir_path);
+          }
+        };
+        rimraf(extracted_path);
+      } catch (cleanupErr) {
+        console.error('Error cleaning up extracted files:', cleanupErr);
+      }
+    } catch (err) {
+      // Clean up on error
+      try {
+        if (fs.existsSync(extracted_path)) {
+          var rimraf = function(dir_path) {
+            if (fs.existsSync(dir_path)) {
+              fs.readdirSync(dir_path).forEach(function(entry) {
+                var entry_path = path.join(dir_path, entry);
+                if (fs.lstatSync(entry_path).isDirectory()) {
+                  rimraf(entry_path);
+                } else {
+                  fs.unlinkSync(entry_path);
+                }
+              });
+              fs.rmdirSync(dir_path);
+            }
+          };
+          rimraf(extracted_path);
+        }
+      } catch (cleanupErr) {
+        console.error('Error cleaning up after extraction failure:', cleanupErr);
+      }
+      res.status(500).send('Error extracting ZIP file.');
+      return;
+    }
   } else {
+    // Enforce maximum size for text files
+    var MAX_TEXT_SIZE = 1 * 1024 * 1024; // 1MB
+    if (importFile.size > MAX_TEXT_SIZE) {
+      res.status(413).send('Text file too large. Maximum size is 1MB.');
+      return;
+    }
     data = importFile.data.toString('ascii');
   }
+  
   var lines = data.split('\n');
+  
+  // Limit number of lines to process
+  var MAX_LINES = 1000;
+  if (lines.length > MAX_LINES) {
+    res.status(400).send('Too many lines to import. Maximum is ' + MAX_LINES + '.');
+    return;
+  }
+  
   lines.forEach(function (line) {
     var parts = line.split(',');
     var what = parts[0];
