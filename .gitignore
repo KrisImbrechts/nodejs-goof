@@ -12,3 +12,7 @@ npm-debug.log
 .idea/
 .dccache
 
+# SSL certificates
+server.key
+server.cert
+*.pem

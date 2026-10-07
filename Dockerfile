@@ -8,6 +8,8 @@ WORKDIR /usr/src/goof
 
 RUN npm update
 RUN npm install
+RUN npm install selfsigned
 EXPOSE 3001
+EXPOSE 3443
 EXPOSE 9229
 ENTRYPOINT ["npm", "start"]

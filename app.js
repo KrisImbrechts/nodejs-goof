@@ -10,6 +10,8 @@ var st = require('st');
 var crypto = require('crypto');
 var express = require('express');
 var http = require('http');
+var https = require('https');
+var fs = require('fs');
 var path = require('path');
 var ejsEngine = require('ejs-locals');
 var bodyParser = require('body-parser');
@@ -31,18 +33,33 @@ var routesUsers = require('./routes/users.js')
 
 // all environments
 app.set('port', process.env.PORT || 3001);
+app.set('https-port', process.env.HTTPS_PORT || 3443);
 app.engine('ejs', ejsEngine);
 app.engine('dust', cons.dust);
 app.engine('hbs', hbs.__express);
 cons.dust.helpers = dustHelpers;
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
+
+// Middleware to enforce HTTPS
+app.use(function(req, res, next) {
+  if (!req.secure && req.get('x-forwarded-proto') !== 'https' && process.env.NODE_ENV !== 'development-http') {
+    return res.redirect('https://' + req.get('host') + req.url);
+  }
+  next();
+});
+
 app.use(logger('dev'));
 app.use(methodOverride());
 app.use(session({
   secret: 'keyboard cat',
   name: 'connect.sid',
-  cookie: { path: '/' }
+  cookie: { 
+    path: '/',
+    secure: true,
+    httpOnly: true,
+    sameSite: 'strict'
+  }
 }))
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -83,6 +100,68 @@ if (app.get('env') == 'development') {
 var token = 'SECRET_TOKEN_f8ed84e8f41e4146403dd4a6bbcea5e418d23a9';
 console.log('token: ' + token);
 
+// Generate self-signed certificate if not exists
+function generateSelfSignedCert() {
+  var certPath = path.join(__dirname, 'server.cert');
+  var keyPath = path.join(__dirname, 'server.key');
+  
+  if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+    console.log('Generating self-signed certificate...');
+    var pem = require('pem');
+    pem.createCertificate({ days: 365, selfSigned: true }, function (err, keys) {
+      if (err) {
+        console.error('Error generating certificate:', err);
+        return;
+      }
+      fs.writeFileSync(keyPath, keys.serviceKey);
+      fs.writeFileSync(certPath, keys.certificate);
+      console.log('Self-signed certificate generated.');
+    });
+  }
+}
+
+// Try to load or generate certificates
+var httpsOptions = null;
+try {
+  var certPath = path.join(__dirname, 'server.cert');
+  var keyPath = path.join(__dirname, 'server.key');
+  
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    httpsOptions = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
+    };
+    console.log('Loaded existing SSL certificates.');
+  } else {
+    // Generate self-signed certificate for development
+    console.log('SSL certificates not found. Using fallback self-signed certificate.');
+    // Create a simple self-signed certificate inline
+    var selfsigned = require('selfsigned');
+    var attrs = [{ name: 'commonName', value: 'localhost' }];
+    var pems = selfsigned.generate(attrs, { days: 365 });
+    httpsOptions = {
+      key: pems.private,
+      cert: pems.cert
+    };
+  }
+} catch (err) {
+  console.error('Error loading SSL certificates:', err);
+  console.log('Falling back to HTTP only mode. WARNING: This is insecure!');
+}
+
+// Create HTTPS server if certificates are available
+if (httpsOptions) {
+  https.createServer(httpsOptions, app).listen(app.get('https-port'), function () {
+    console.log('Express HTTPS server listening on port ' + app.get('https-port'));
+  });
+}
+
+// Create HTTP server that redirects to HTTPS
 http.createServer(app).listen(app.get('port'), function () {
-  console.log('Express server listening on port ' + app.get('port'));
+  console.log('Express HTTP server listening on port ' + app.get('port'));
+  if (httpsOptions) {
+    console.log('HTTP requests will be redirected to HTTPS');
+  } else {
+    console.log('WARNING: Running in HTTP-only mode. This is insecure for production!');
+  }
 });
