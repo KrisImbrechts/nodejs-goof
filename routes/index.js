@@ -136,6 +136,15 @@ function parse(todo) {
     var time = t.slice(reminder + remindToken.length);
     time = time.replace(/\n$/, '');
 
+    // Mitigate ReDoS: limit duration string length to prevent catastrophic backtracking
+    // in vulnerable humanize-ms/ms parser. Legitimate duration strings are short (e.g., "5 minutes").
+    var MAX_DURATION_LENGTH = 100;
+    if (time.length > MAX_DURATION_LENGTH) {
+      console.log('Duration string too long, skipping parsing to prevent ReDoS');
+      // Skip parsing and return original content without reminder processing
+      return t;
+    }
+
     var period = hms(time);
 
     console.log('period: ' + period);
