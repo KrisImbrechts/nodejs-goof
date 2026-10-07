@@ -128,6 +128,11 @@ exports.logout = function (req, res, next) {
 }
 
 function parse(todo) {
+  // Validate that todo is a string or Buffer to prevent numeric Buffer cast vulnerability
+  if (typeof todo !== 'string' && !Buffer.isBuffer(todo)) {
+    throw new TypeError('Content must be a string or Buffer');
+  }
+
   var t = todo;
 
   var remindToken = ' in ';
@@ -153,6 +158,12 @@ exports.create = function (req, res, next) {
   // console.log('req.body: ' + JSON.stringify(req.body));
 
   var item = req.body.content;
+  
+  // Validate that content is a string or Buffer to prevent numeric Buffer cast vulnerability
+  if (typeof item !== 'string' && !Buffer.isBuffer(item)) {
+    return next(new TypeError('Content must be a string or Buffer'));
+  }
+
   var imgRegex = /\!\[alt text\]\((http.*)\s\".*/;
   if (typeof (item) == 'string' && item.match(imgRegex)) {
     var url = item.match(imgRegex)[1];
@@ -218,7 +229,13 @@ exports.edit = function (req, res, next) {
 exports.update = function (req, res, next) {
   Todo.findById(req.params.id, function (err, todo) {
 
-    todo.content = req.body.content;
+    // Validate that content is a string or Buffer to prevent numeric Buffer cast vulnerability
+    var content = req.body.content;
+    if (typeof content !== 'string' && !Buffer.isBuffer(content)) {
+      return next(new TypeError('Content must be a string or Buffer'));
+    }
+
+    todo.content = content;
     todo.updated_at = Date.now();
     todo.save(function (err, todo, count) {
       if (err) return next(err);
@@ -280,6 +297,12 @@ exports.import = function (req, res, next) {
         var d = moment(when);
         console.log('formatting ' + d);
         item += ' [' + d.format(format) + ']';
+      }
+
+      // Validate that item is a string to prevent numeric Buffer cast vulnerability
+      if (typeof item !== 'string') {
+        console.log('skipping non-string item');
+        return;
       }
 
       new Todo({
