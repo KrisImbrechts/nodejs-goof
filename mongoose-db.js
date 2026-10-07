@@ -48,10 +48,22 @@ User = mongoose.model('User');
 User.find({ username: 'admin@snyk.io' }).exec(function (err, users) {
   console.log(users);
   if (users.length === 0) {
-    console.log('no admin');
-    new User({ username: 'admin@snyk.io', password: 'SuperSecretPassword' }).save(function (err, user, count) {
+    console.log('no admin user found');
+    
+    // Require admin password to be provided via environment variable
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    
+    if (!adminPassword || adminPassword.length < 8) {
+      console.warn('WARNING: No admin user created. Set ADMIN_PASSWORD environment variable (minimum 8 characters) to create the admin account.');
+      console.warn('WARNING: The application will not have an administrator account until ADMIN_PASSWORD is configured and the application is restarted.');
+      return;
+    }
+    
+    new User({ username: 'admin@snyk.io', password: adminPassword }).save(function (err, user, count) {
       if (err) {
         console.log('error saving admin user');
+      } else {
+        console.log('Admin user created successfully with password from ADMIN_PASSWORD environment variable');
       }
     });
   }
