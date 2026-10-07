@@ -5,8 +5,10 @@ services:
     container_name: goof
     environment:
       - DOCKER=1
+      - NODE_ENV=production
     ports:
       - "3001:3001"
+      - "3443:3443"
       - "9229:9229"
     links:
       - goof-mongo
