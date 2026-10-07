@@ -23,7 +23,9 @@ console.log(JSON.stringify(cfenv.getAppEnv()));
 // Default Mongo URI is local
 const DOCKER = process.env.DOCKER
 if (DOCKER === '1') {
-  var mongoUri = 'mongodb://goof-mongo/express-todo';
+  const mongoUsername = process.env.MONGO_USERNAME || 'goof_user';
+  const mongoPassword = process.env.MONGO_PASSWORD || 'goof_password_change_in_production';
+  var mongoUri = `mongodb://${mongoUsername}:${mongoPassword}@goof-mongo:27017/express-todo?authSource=admin`;
 } else {
   var mongoUri = 'mongodb://localhost/express-todo';
 }
@@ -49,7 +51,7 @@ User.find({ username: 'admin@snyk.io' }).exec(function (err, users) {
   console.log(users);
   if (users.length === 0) {
     console.log('no admin');
-    new User({ username: 'admin@snyk.io', password: 'SuperSecretPassword' }).save(function (err, user, count) {
+    new User({ username: 'admin@snyk.io', password: '****word' }).save(function (err, user, count) {
       if (err) {
         console.log('error saving admin user');
       }
