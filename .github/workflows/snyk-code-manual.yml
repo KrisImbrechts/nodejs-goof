@@ -8,9 +8,9 @@ jobs:
     permissions:
       security-events: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@5f532563584d71fdef14ee64d17bafb34f751ce5 # v2.1.39
         with:
           sarif_file: sarif.json
           # sarif_file: example111.json
