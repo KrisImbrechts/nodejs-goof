@@ -1,0 +1,8 @@
+{
+  "name": "import-security-tests",
+  "version": "1.0.0",
+  "description": "Security tests for import endpoint",
+  "scripts": {
+    "test": "node import-security.test.js"
+  }
+}
