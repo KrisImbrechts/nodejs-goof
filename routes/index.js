@@ -297,11 +297,28 @@ exports.import = function (req, res, next) {
 
 exports.about_new = function (req, res, next) {
   console.log(JSON.stringify(req.query));
+  
+  // Sanitize device parameter to prevent code injection in Dust template conditionals
+  // Reject arrays and non-string values to prevent dustjs-linkedin eval() exploitation
+  var device = req.query.device;
+  var sanitizedDevice = '';
+  
+  if (device !== undefined && device !== null) {
+    // Reject array values (Express bracket notation attack: device[]=payload)
+    if (Array.isArray(device)) {
+      sanitizedDevice = '';
+    } else if (typeof device === 'string') {
+      // Only allow alphanumeric characters and common device identifiers
+      // This prevents injection while allowing legitimate device strings
+      sanitizedDevice = device.replace(/[^a-zA-Z0-9\s\-_]/g, '');
+    }
+  }
+  
   return res.render("about_new.dust",
     {
       title: 'Patch TODO List',
       subhead: 'Vulnerabilities at their best',
-      device: req.query.device
+      device: sanitizedDevice
     });
 };
 
